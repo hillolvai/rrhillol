@@ -59,4 +59,4 @@ A single-file browser simulator that shows how a room cools with one or more air
 ## Known limits
 
 - Sensible heat only, with no humidity or latent load (planned for v2). Real-world tonnage rules of thumb include latent load, so this model's heat-gain figure is lower than "1 ton per 150 sq ft".
-- CSV download is blocked when the page is viewed inside a sandboxed embed. Use "Copy CSV" there.
+- CSV download uses the viewer's download prompt when hosted on claude.ai, and a normal browser download when the file is opened directly.

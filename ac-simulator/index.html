@@ -1004,13 +1004,22 @@ const Controller = (() => {
     const lines = rows.map((r) => [r[0], hhmm(r[0]), r[1].toFixed(2), r[2].toFixed(2), r[3], r[4], r[5].toFixed(3), r[6].toFixed(4), r[7].toFixed(2), ...r.slice(8).map((x) => x.toFixed(0))].join(','));
     return head.join(',') + '\n' + lines.join('\n') + '\n';
   }
-  $('btnCsv').addEventListener('click', () => {
-    const blob = new Blob([csv()], { type: 'text/csv' });
+  // Hosted on claude.ai the page saves through the viewer's download capability; standalone it uses a blob link.
+  const downloadsP = window.claude?.use ? window.claude.use('downloads').catch(() => null) : Promise.resolve(undefined);
+  $('btnCsv').addEventListener('click', async () => {
+    const filename = `ac-sim-${hhmm(sim.s.t).replace(':', 'h')}.csv`;
+    const downloads = await downloadsP;
+    if (downloads) {
+      try { await downloads.save({ filename, data: csv() }); toast(`Saved ${filename} (${rows.length} rows).`); }
+      catch (err) { toast(err?.code === 'declined' ? 'Download cancelled.' : 'Download is not available here. Use Copy CSV instead.'); }
+      return;
+    }
+    if (downloads === null) { toast('Download is not available here. Use Copy CSV instead.'); return; }
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = `ac-sim-${hhmm(sim.s.t).replace(':', 'h')}.csv`;
+    a.href = URL.createObjectURL(new Blob([csv()], { type: 'text/csv' })); a.download = filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    toast(`CSV with ${rows.length} rows. If no download started, use Copy CSV.`);
+    toast(`Downloaded ${filename} (${rows.length} rows).`);
   });
   $('btnCopy').addEventListener('click', () => {
     const text = csv();
