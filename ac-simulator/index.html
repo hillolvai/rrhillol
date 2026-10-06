@@ -1,0 +1,1436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Browser simulator showing how a room cools with inverter and non-inverter air conditioners.">
+<title>AC Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
+<style>
+/* Layout: control-panel tool. Desktop = setup column left, instrument area right (bar, readouts, plan + sizing, graph). Phone = stacked, instruments first. */
+:root {
+  --bg: #eaf0f3;
+  --panel: #ffffff;
+  --sunk: #f3f7f9;
+  --ink: #12222a;
+  --muted: #5a6c76;
+  --line: #d2dce2;
+  --cool: #0b7fb3;
+  --cool-soft: #d7eef8;
+  --heat: #d2490f;
+  --ok: #2c8749;
+  --warn: #a8700f;
+  --bad: #c0352b;
+  --plan-floor: #f6f9fa;
+  --plan-wall: #33454f;
+  --font-ui: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d151a; --panel: #142028; --sunk: #101a20; --ink: #e2ebef; --muted: #8b9ea8; --line: #253641;
+    --cool: #4fc0ee; --cool-soft: #12303d; --heat: #ff7c47; --ok: #5cc27e; --warn: #e2aa3e; --bad: #f06a5c;
+    --plan-floor: #1a2830; --plan-wall: #9fb3bd; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d151a; --panel: #142028; --sunk: #101a20; --ink: #e2ebef; --muted: #8b9ea8; --line: #253641;
+  --cool: #4fc0ee; --cool-soft: #12303d; --heat: #ff7c47; --ok: #5cc27e; --warn: #e2aa3e; --bad: #f06a5c;
+  --plan-floor: #1a2830; --plan-wall: #9fb3bd; color-scheme: dark;
+}
+
+/* uPlot base styles (inlined) */
+.uplot, .uplot *, .uplot *::before, .uplot *::after {box-sizing: border-box;}
+.uplot {font-family: var(--font-data); line-height: 1.5; width: min-content;}
+.u-wrap {position: relative; user-select: none;}
+.u-over, .u-under {position: absolute;}
+.u-under {overflow: hidden;}
+.uplot canvas {display: block; position: relative; width: 100%; height: 100%;}
+.u-axis {position: absolute;}
+.u-legend {display: none;}
+.u-select {background: rgba(0,0,0,0.07); position: absolute; pointer-events: none;}
+.u-cursor-x, .u-cursor-y {position: absolute; left: 0; top: 0; pointer-events: none; will-change: transform;}
+.u-hz .u-cursor-x, .u-vt .u-cursor-y {height: 100%; border-right: 1px dashed var(--muted);}
+.u-hz .u-cursor-y, .u-vt .u-cursor-x {width: 100%; border-bottom: 1px dashed var(--muted);}
+.u-cursor-pt {position: absolute; top: 0; left: 0; border-radius: 50%; border: 0 solid; pointer-events: none; will-change: transform; background-clip: padding-box !important;}
+.u-axis.u-off, .u-select.u-off, .u-cursor-x.u-off, .u-cursor-y.u-off, .u-cursor-pt.u-off {display: none;}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.45 var(--font-ui);
+  padding: 16px; padding-block: 16px 32px;
+}
+.app {
+  max-width: 1440px; margin: 0 auto;
+  display: grid; gap: 16px;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-areas: "setup main";
+  align-items: start;
+}
+.setup { grid-area: setup; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.main { grid-area: main; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "setup"; }
+}
+
+header.brand { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+header.brand h1 {
+  font: 600 28px/1 var(--font-display); letter-spacing: 0.01em; margin: 0;
+  text-wrap: balance;
+}
+header.brand h1 span { color: var(--cool); }
+header.brand p { margin: 0; color: var(--muted); font-size: 13px; }
+
+.panel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 14px; min-width: 0;
+}
+.panel h2, details.panel > summary {
+  font: 600 13px/1.2 var(--font-display); text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--muted); margin: 0 0 10px;
+}
+details.panel > summary { cursor: pointer; margin: 0; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+details.panel > summary::-webkit-details-marker { display: none; }
+details.panel > summary::after { content: "+"; font: 600 16px var(--font-data); color: var(--muted); }
+details.panel[open] > summary::after { content: "–"; }
+details.panel[open] > summary { margin-bottom: 10px; }
+
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.fields .full { grid-column: 1 / -1; }
+.f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.f > label, .f > .lbl { font-size: 12px; color: var(--muted); font-weight: 500; }
+.f small { font-size: 11px; color: var(--muted); }
+input[type=number], input[type=text], select {
+  font: 500 14px var(--font-ui); color: var(--ink);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 7px;
+  padding: 7px 8px; width: 100%; min-width: 0;
+}
+input[type=number] { font-family: var(--font-data); font-size: 13px; }
+input:disabled, select:disabled { opacity: 0.55; cursor: not-allowed; }
+input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible, canvas:focus-visible {
+  outline: 2px solid var(--cool); outline-offset: 2px;
+}
+.inline { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.inline input { accent-color: var(--cool); }
+
+button {
+  font: 600 14px var(--font-ui); color: var(--ink); cursor: pointer;
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 7px; padding: 7px 12px;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--cool); border-color: var(--cool); color: var(--panel); }
+button.ghost { background: transparent; }
+button.small { font-size: 12px; padding: 4px 8px; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--sunk); font: 600 12px var(--font-data); padding: 6px 9px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+
+/* run bar */
+.runbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.runbar .clock { font: 600 26px/1 var(--font-data); font-variant-numeric: tabular-nums; min-width: 6.2ch; }
+.runbar .clock small { font: 500 11px var(--font-ui); color: var(--muted); display: block; letter-spacing: 0.06em; text-transform: uppercase; }
+.runbar .grow { flex: 1 1 auto; }
+.runbar .ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.runbar .ctl label { font-size: 12px; color: var(--muted); }
+.runbar select { width: auto; }
+.live { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; border-top: 1px dashed var(--line); margin-top: 12px; padding-top: 12px; }
+.live .f { flex-direction: row; align-items: center; gap: 8px; }
+.live input[type=number] { width: 72px; }
+.stepper { display: inline-flex; align-items: center; gap: 4px; }
+.stepper button { padding: 4px 9px; font-family: var(--font-data); }
+
+/* readouts */
+.readouts { display: flex; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 4px; }
+.ro { flex: 1 1 118px; padding: 8px 12px; min-width: 0; }
+.ro .k { font: 600 11px var(--font-display); text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); }
+.ro .v { font: 600 22px/1.15 var(--font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ro .v small { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 2px; }
+.ro .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ro.hero .v { font-size: 30px; color: var(--heat); }
+.ro.hero.cool .v { color: var(--cool); }
+@media (max-width: 520px) { .ro { flex-basis: 45%; } .ro .v { font-size: 19px; } .ro.hero .v { font-size: 24px; } }
+
+/* plan + sizing */
+.stage { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 1100px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+.plan-wrap { position: relative; }
+#plan { width: 100%; height: 360px; display: block; border-radius: 8px; background: var(--sunk); touch-action: manipulation; cursor: crosshair; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+.hint b { color: var(--ink); font-weight: 600; }
+
+.verdict { display: flex; gap: 10px; align-items: flex-start; }
+.chip {
+  font: 600 12px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 6px 9px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap;
+}
+.chip.good { color: var(--ok); } .chip.under { color: var(--bad); } .chip.over { color: var(--warn); }
+.chip.pending, .chip.none { color: var(--muted); }
+.verdict p { margin: 0; font-size: 14px; }
+.meter { margin-top: 14px; }
+.meter .bar { position: relative; height: 10px; background: var(--sunk); border: 1px solid var(--line); border-radius: 99px; overflow: hidden; }
+.meter .fill { position: absolute; inset: 0 auto 0 0; background: var(--cool); border-radius: 99px; }
+.meter .fill.hot { background: var(--bad); }
+.meter .legend { display: flex; justify-content: space-between; font: 12px var(--font-data); color: var(--muted); margin-top: 6px; gap: 8px; flex-wrap: wrap; }
+dl.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 14px 0 0; font-size: 13px; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; text-align: right; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+
+/* graph */
+.graph-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.graph-head h2 { margin: 0; }
+.keys { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.keys span { display: inline-flex; align-items: center; gap: 5px; }
+.keys i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; }
+.keys i.dash { border-top-style: dashed; }
+#chartT, #chartE { width: 100%; overflow: hidden; }
+#chartE { margin-top: 6px; }
+
+/* AC unit cards */
+.units { display: flex; flex-direction: column; gap: 10px; }
+.unit { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--sunk); display: grid; gap: 8px; }
+.unit.sel { border-color: var(--cool); box-shadow: 0 0 0 1px var(--cool); }
+.unit .top { display: flex; align-items: center; gap: 8px; }
+.unit .name { font: 600 15px var(--font-display); letter-spacing: 0.03em; flex: 1; min-width: 0; }
+.unit .badge { font: 600 12px var(--font-data); padding: 2px 7px; border-radius: 5px; background: var(--panel); border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.unit .badge.run { color: var(--cool); border-color: var(--cool); }
+.unit .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.unit .meta { font: 12px var(--font-data); color: var(--muted); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.switch input { accent-color: var(--cool); width: 16px; height: 16px; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.toolbar .grow { flex: 1; }
+.note { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+.lockmsg { font-size: 12px; color: var(--warn); margin: 0; }
+.toast { font-size: 12px; color: var(--ok); min-height: 1em; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <main class="main">
+    <header class="brand">
+      <h1>AC <span>Simulator</span></h1>
+      <p>Two-node room model: air + walls. Fixed 1-second physics step at every speed.</p>
+    </header>
+
+    <section class="panel" aria-label="Simulation controls">
+      <div class="runbar">
+        <div class="clock" aria-live="off"><small>Sim time</small><span id="clock">00:00</span></div>
+        <div class="ctl">
+          <button id="btnRun" class="primary" type="button">Run</button>
+          <button id="btnReset" type="button">Reset</button>
+        </div>
+        <div class="ctl">
+          <label id="speedLbl">Speed</label>
+          <div class="seg" id="speed" role="group" aria-labelledby="speedLbl">
+            <button type="button" data-speed="1" aria-pressed="false">1×</button>
+            <button type="button" data-speed="60" aria-pressed="false">60×</button>
+            <button type="button" data-speed="600" aria-pressed="true">600×</button>
+            <button type="button" data-speed="1800" aria-pressed="false">1800×</button>
+          </div>
+        </div>
+        <div class="ctl">
+          <label for="stopAt">Stop at</label>
+          <select id="stopAt">
+            <option value="0">No limit</option>
+            <option value="1">1 h</option>
+            <option value="2">2 h</option>
+            <option value="4">4 h</option>
+            <option value="8" selected>8 h</option>
+            <option value="12">12 h</option>
+            <option value="24">24 h</option>
+          </select>
+        </div>
+      </div>
+      <div class="live" aria-label="Live adjustments">
+        <div class="f">
+          <label for="setpoint">Setpoint °C</label>
+          <span class="stepper">
+            <button type="button" class="small" data-step="setpoint" data-d="-1" aria-label="Lower setpoint">−</button>
+            <input type="number" id="setpoint" value="24" min="16" max="30" step="0.5">
+            <button type="button" class="small" data-step="setpoint" data-d="1" aria-label="Raise setpoint">+</button>
+          </span>
+        </div>
+        <div class="f">
+          <label for="outdoor">Outdoor °C</label>
+          <span class="stepper">
+            <button type="button" class="small" data-step="outdoor" data-d="-1" aria-label="Lower outdoor temperature">−</button>
+            <input type="number" id="outdoor" value="35" min="20" max="48" step="0.5">
+            <button type="button" class="small" data-step="outdoor" data-d="1" aria-label="Raise outdoor temperature">+</button>
+          </span>
+        </div>
+        <label class="switch"><input type="checkbox" id="advanced"> Show wall temperature</label>
+      </div>
+    </section>
+
+    <section class="readouts" aria-label="Live readouts">
+      <div class="ro hero"><div class="k">Indoor</div><div class="v" id="roTa">35.0<small>°C</small></div><div class="s" id="roTaS">Setpoint 24 °C</div></div>
+      <div class="ro" id="roTmBox"><div class="k">Walls &amp; contents</div><div class="v" id="roTm">35.0<small>°C</small></div><div class="s">Stored heat node</div></div>
+      <div class="ro"><div class="k">Power now</div><div class="v" id="roP">0.00<small>kW</small></div><div class="s" id="roPS">Cooling 0.0 kW</div></div>
+      <div class="ro"><div class="k">Energy</div><div class="v" id="roE">0.00<small>kWh</small></div><div class="s" id="roES">Avg 0.00 kW</div></div>
+      <div class="ro"><div class="k">Cost</div><div class="v" id="roC">0.00<small>Tk</small></div><div class="s" id="roCS">at 8 Tk/kWh</div></div>
+      <div class="ro"><div class="k">To setpoint</div><div class="v" id="roR">—</div><div class="s" id="roRS">Not reached yet</div></div>
+      <div class="ro"><div class="k">Compressor</div><div class="v" id="roK">OFF</div><div class="s" id="roKS">—</div></div>
+    </section>
+
+    <div class="stage">
+      <section class="panel" aria-label="Floor plan">
+        <h2>Floor plan</h2>
+        <div class="plan-wrap">
+          <canvas id="plan" tabindex="0" aria-label="Top-down room plan. Tap a wall to place the selected AC unit."></canvas>
+        </div>
+        <p class="hint" id="planHint">Tap a wall to move <b>AC 1</b>. Thick walls face outside.</p>
+      </section>
+      <section class="panel" aria-label="Sizing">
+        <h2>Sizing check</h2>
+        <div class="verdict"><span class="chip pending" id="vChip">Evaluating</span><p id="vText">Run the simulation to see how the AC copes.</p></div>
+        <div class="meter">
+          <div class="bar"><div class="fill" id="mFill" style="width:30%"></div></div>
+          <div class="legend"><span id="mLoad">Heat gain 0 kW</span><span id="mCap">Capacity 0 kW</span></div>
+        </div>
+        <dl class="kv">
+          <dt>Heat gain at setpoint</dt><dd id="kLoad">—</dd>
+          <dt>Installed capacity</dt><dd id="kCap">—</dd>
+          <dt>Load ratio</dt><dd id="kRatio">—</dd>
+          <dt>Lowest temp it can hold</dt><dd id="kEq">—</dd>
+          <dt>Compressor starts / hour</dt><dd id="kCph">—</dd>
+        </dl>
+      </section>
+    </div>
+
+    <section class="panel" aria-label="Live graph">
+      <div class="graph-head">
+        <h2>Temperature &amp; power</h2>
+        <div class="keys">
+          <span><i style="border-color:var(--heat)"></i>Indoor</span>
+          <span><i class="dash" style="border-color:var(--muted)"></i>Outdoor</span>
+          <span><i class="dash" style="border-color:var(--ok)"></i>Setpoint</span>
+          <span id="keyTm" hidden><i style="border-color:var(--warn)"></i>Walls</span>
+          <span><i style="border-color:var(--cool)"></i>Power kW (right)</span>
+        </div>
+      </div>
+      <div id="chartT"></div>
+      <div class="graph-head" style="margin-top:10px"><h2>Cumulative energy (kWh)</h2></div>
+      <div id="chartE"></div>
+    </section>
+  </main>
+
+  <aside class="setup" aria-label="Setup">
+    <section class="panel">
+      <div class="toolbar">
+        <h2 style="margin:0" class="grow">Setup</h2>
+        <span class="inline">Units</span>
+        <div class="seg" id="unitSys" role="group" aria-label="Length units">
+          <button type="button" data-u="m" aria-pressed="true">m</button>
+          <button type="button" data-u="ft" aria-pressed="false">ft</button>
+        </div>
+      </div>
+      <p class="lockmsg" id="lockMsg" hidden>Room and AC settings are locked during a run. Reset to change them. Setpoint, outdoor temperature and AC power stay live.</p>
+    </section>
+
+    <details class="panel" open>
+      <summary>Room</summary>
+      <div class="fields">
+        <div class="f"><label for="len">Length (<span class="lu">m</span>)</label><input type="number" id="len" data-len="1" value="4" min="1" step="0.1"></div>
+        <div class="f"><label for="wid">Width (<span class="lu">m</span>)</label><input type="number" id="wid" data-len="1" value="3.5" min="1" step="0.1"></div>
+        <div class="f"><label for="hei">Height (<span class="lu">m</span>)</label><input type="number" id="hei" data-len="1" value="3" min="2" step="0.1"></div>
+        <div class="f"><label for="extWalls">Outside walls</label>
+          <select id="extWalls"><option value="1">1</option><option value="2" selected>2 (corner)</option><option value="3">3</option><option value="4">4</option></select></div>
+        <div class="f full"><label for="floorPos">Floor position</label>
+          <select id="floorPos"></select></div>
+        <div class="f full"><label for="wall">Wall construction</label>
+          <select id="wall"></select></div>
+        <div class="f full"><label for="airtight">Air tightness</label>
+          <select id="airtight"></select></div>
+        <div class="f full"><label for="startT">Starting indoor temperature °C</label>
+          <div class="toolbar"><input type="number" id="startT" value="35" step="0.5" style="flex:1" disabled>
+          <label class="inline"><input type="checkbox" id="startSame" checked> Same as outdoor</label></div></div>
+      </div>
+    </details>
+
+    <details class="panel" open>
+      <summary>Heat sources</summary>
+      <div class="fields">
+        <div class="f"><label for="people">People</label><input type="number" id="people" value="2" min="0" step="1"><small>~100 W each</small></div>
+        <div class="f"><label for="appl">Lights &amp; appliances W</label><input type="number" id="appl" value="150" min="0" step="10"></div>
+        <div class="f"><label for="winA">Sunlit window (<span class="au">m²</span>)</label><input type="number" id="winA" data-area="1" value="1.5" min="0" step="0.1"></div>
+        <div class="f"><label for="orient">Window faces</label>
+          <select id="orient"><option value="none">No sun</option><option value="N">North</option><option value="E">East</option><option value="S">South</option><option value="W" selected>West</option></select></div>
+      </div>
+    </details>
+
+    <details class="panel" open>
+      <summary>AC units</summary>
+      <div class="units" id="units"></div>
+      <div class="toolbar" style="margin-top:10px">
+        <button type="button" id="btnAdd">Add AC</button>
+        <span class="grow"></span>
+      </div>
+      <p class="note">COP is pre-filled from the preset. Inverter COP rises up to ~1.2× at 40–60% load.</p>
+    </details>
+
+    <details class="panel" open>
+      <summary>Cost</summary>
+      <div class="fields">
+        <div class="f full"><label for="tariff">Electricity tariff (Tk per kWh)</label><input type="number" id="tariff" value="8" min="0" step="0.1"></div>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Save &amp; export</summary>
+      <div class="fields">
+        <div class="f full"><label for="saveName">Setup name</label>
+          <div class="toolbar"><input type="text" id="saveName" placeholder="e.g. Bedroom, 1.5 ton inverter" style="flex:1"><button type="button" id="btnSave">Save</button></div></div>
+        <div class="f full"><label for="loadSel">Saved setups</label>
+          <div class="toolbar"><select id="loadSel" style="flex:1"></select><button type="button" id="btnLoad">Load</button><button type="button" id="btnDel" class="ghost">Delete</button></div></div>
+        <div class="f full"><span class="lbl">Run data (one row per 5 s of sim time)</span>
+          <div class="toolbar"><button type="button" id="btnCsv">Download CSV</button><button type="button" id="btnCopy">Copy CSV</button></div></div>
+      </div>
+      <p class="toast" id="toast" role="status"></p>
+    </details>
+  </aside>
+</div>
+<script id="engine">
+/* ===================== ENGINE: pure physics, no DOM ===================== */
+const Engine = (() => {
+  const TON_W = 3517;
+  const RHO_CP_AIR = 1200;          // J/m³·K
+  const FAST_CONTENTS = 3.0;        // extra fast thermal mass (air-coupled contents) as multiple of air
+  const H_IN = 6.0;                 // W/m²·K combined interior surface coefficient
+  const FURNITURE_C = 8000;         // J/K per m² floor (furniture, bedding, books)
+  const FURNITURE_H = 6.0;          // W/K per m² floor
+  const GROUND_T = 27;              // °C, soil under a ground floor slab
+
+  // U in W/m²·K, c = effective storage per m² of interior surface over a few hours (J/m²·K)
+  const WALLS = {
+    brick:     { label: 'Brick, plastered (125 mm)', U: 2.8, c: 10000 },
+    brick250:  { label: 'Brick, plastered (250 mm)', U: 2.0, c: 14000 },
+    concrete:  { label: 'Concrete / RCC',            U: 3.1, c: 16000 },
+    aac:       { label: 'AAC block / insulated',     U: 0.8, c: 6000 },
+    light:     { label: 'Lightweight panel / tin',   U: 4.0, c: 2500 },
+  };
+  const AIRTIGHT = {
+    tight:   { label: 'Tight (sealed, new build)', ach: 0.3 },
+    average: { label: 'Average',                   ach: 0.7 },
+    leaky:   { label: 'Leaky (gaps at doors)',     ach: 1.5 },
+    door:    { label: 'Door often open',           ach: 3.0 },
+  };
+  const FLOORS = {
+    middle: { label: 'Middle floor' },
+    top:    { label: 'Top floor (roof above)' },
+    ground: { label: 'Ground floor' },
+  };
+  // Multiplier on peak window solar gain (W/m²) for a tropical afternoon
+  const ORIENT = { none: 0, N: 0.2, E: 0.7, S: 0.55, W: 1.0 };
+  const SOLAR_PEAK = 320;           // W/m² of glass through single clear glazing, facing west
+  const U_WINDOW = 5.8;
+  const U_ROOF = 2.2;
+  const ROOF_SOLAIR = 14;           // K above outdoor air for a sunlit concrete roof
+  const WALL_SOLAIR = 4;            // K above outdoor air for exposed walls
+  const U_GROUND = 1.0;
+
+  const AC_PRESETS = {
+    'window|non':   { cop: 2.7,       fan: 0,   partMax: 1.0 },
+    'split|non':    { cop: 3.2,       fan: 45,  partMax: 1.0 },
+    'split|inv':    { cop: 3.8,       fan: 45,  partMax: 1.2 },
+    'cassette|non': { cop: 3.0,       fan: 100, partMax: 1.0 },
+    'cassette|inv': { cop: 3.6,       fan: 100, partMax: 1.2 },
+  };
+  const CAPACITIES = {
+    window:   [0.75, 1, 1.5, 2, 2.5, 3],
+    split:    [0.75, 1, 1.5, 2, 2.5, 3],
+    cassette: [2, 2.5, 3, 4, 5],
+  };
+
+  function presetFor(type, comp) {
+    if (type === 'window') comp = 'non';
+    return AC_PRESETS[type + '|' + comp];
+  }
+
+  /** Turn user inputs into lumped model parameters. */
+  function buildRoom(r) {
+    const L = r.length, W = r.width, H = r.height;
+    const V = L * W * H;
+    const floorA = L * W;
+    const wallA = 2 * (L + W) * H;
+    const ext = Math.max(0, Math.min(4, r.extWalls));
+    // exterior walls: alternate long and short sides
+    const sides = [L, W, L, W];
+    let extWallA = 0;
+    for (let i = 0; i < ext; i++) extWallA += sides[i] * H;
+    const winA = Math.min(r.windowArea, extWallA * 0.8);
+    const wall = WALLS[r.wall];
+    const ach = AIRTIGHT[r.airtight].ach;
+
+    const A_int = wallA + 2 * floorA;
+    const C_air = RHO_CP_AIR * V * (1 + FAST_CONTENTS);
+    const C_mass = A_int * wall.c + floorA * FURNITURE_C;
+    const H_mass = A_int * H_IN + floorA * FURNITURE_H;
+
+    return {
+      V, floorA, C_air, C_mass, H_mass,
+      UA_win: U_WINDOW * winA,                       // outdoor ↔ air
+      UA_inf: 0.33 * V * ach,                        // outdoor ↔ air
+      UA_wall: wall.U * Math.max(0, extWallA - winA), // sol-air ↔ mass
+      UA_roof: r.floor === 'top' ? U_ROOF * floorA : 0,
+      UA_ground: r.floor === 'ground' ? U_GROUND * floorA : 0,
+      Q_internal: r.people * 100 + r.appliances,
+      Q_solar: winA * SOLAR_PEAK * (ORIENT[r.orientation] || 0),
+    };
+  }
+
+  /** Heat flows (W) into air and mass at a given state. */
+  function flows(p, Ta, Tm, Tout) {
+    const Q_env = (p.UA_win + p.UA_inf) * (Tout - Ta);
+    const Q_ext = p.UA_wall * (Tout + WALL_SOLAIR - Tm)
+                + p.UA_roof * (Tout + ROOF_SOLAIR - Tm)
+                + p.UA_ground * (GROUND_T - Tm);
+    const Q_link = p.H_mass * (Tm - Ta);
+    return { Q_env, Q_ext, Q_link, Q_gain_air: Q_env + p.Q_internal + p.Q_solar };
+  }
+
+  /** Steady-state cooling load (W) needed to hold air AND mass at T. */
+  function steadyLoad(p, T, Tout) {
+    const f = flows(p, T, T, Tout);
+    return Math.max(0, f.Q_gain_air + f.Q_ext);
+  }
+
+  /** Lowest air temperature a given steady cooling capacity (W) can hold. */
+  function equilibriumTemp(p, Tout, Qcap) {
+    let lo = -10, hi = Tout + 30;
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2;
+      if (steadyLoad(p, mid, Tout) > Qcap) lo = mid; else hi = mid;
+    }
+    return hi;
+  }
+
+  /** Cooling capacity multiplier from outdoor temperature. */
+  function capDerate(Tout) {
+    return Tout > 35 ? Math.max(0.5, 1 - 0.015 * (Tout - 35)) : 1;
+  }
+  function copDerate(Tout) {
+    return Tout > 35 ? Math.max(0.5, 1 - 0.02 * (Tout - 35)) : Math.min(1.15, 1 + 0.015 * (35 - Tout));
+  }
+  /** Inverter part-load COP multiplier vs compressor fraction. */
+  function partLoadCop(frac, partMax) {
+    if (partMax <= 1) return 1;
+    const pts = [[0.3, 1.1], [0.45, partMax], [0.6, partMax], [1.0, 1.0], [1.1, 0.93]];
+    if (frac <= pts[0][0]) return pts[0][1];
+    for (let i = 1; i < pts.length; i++) {
+      if (frac <= pts[i][0]) {
+        const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+        return y0 + (y1 - y0) * (frac - x0) / (x1 - x0);
+      }
+    }
+    return pts[pts.length - 1][1];
+  }
+
+  /** Electrical and thermal output of one unit at compressor fraction. */
+  function unitOutput(u, frac, Tout) {
+    const ratedW = u.tons * TON_W;
+    const Q = frac * ratedW * capDerate(Tout);
+    const cop = u.cop * copDerate(Tout) * partLoadCop(frac, u.partMax);
+    const P = (frac > 0 ? Q / cop : 0) + (u.enabled ? u.fan : 0);
+    return { Q, P };
+  }
+
+  /** Advance one explicit-Euler step of dt seconds. Mutates and returns s. */
+  function step(s, p, Tout, Q_ac, dt) {
+    const f = flows(p, s.Ta, s.Tm, Tout);
+    const dTa = (f.Q_gain_air + f.Q_link - Q_ac) / p.C_air;
+    const dTm = (f.Q_ext - f.Q_link) / p.C_mass;
+    s.Ta += dTa * dt;
+    s.Tm += dTm * dt;
+    s.t += dt;
+    return s;
+  }
+
+  return {
+    TON_W, WALLS, AIRTIGHT, FLOORS, ORIENT, CAPACITIES,
+    presetFor, buildRoom, flows, steadyLoad, equilibriumTemp, capDerate, copDerate, partLoadCop, unitOutput, step,
+  };
+})();
+
+/* ============ CONTROLLER: thermostat / inverter logic, fixed-step loop ============ */
+const Controller = (() => {
+  const DT = 1;                  // physics step, seconds
+  const MIN_OFF = 180;           // compressor protection
+  const DEADBAND = 1.0;          // ±°C for non-inverter
+  const INV_MIN = 0.3, INV_MAX = 1.1;
+  const KP = 1.0, TI = 600;      // PI gains (fraction per °C, seconds)
+  const OVERSIZE_CPH = 8;        // compressor starts per hour that count as short-cycling
+
+  function makeUnit(cfg) {
+    const pre = Engine.presetFor(cfg.type, cfg.comp);
+    return {
+      id: cfg.id, type: cfg.type, comp: cfg.type === 'window' ? 'non' : cfg.comp,
+      tons: cfg.tons, cop: cfg.cop ?? pre.cop, fan: pre.fan, partMax: pre.partMax,
+      wall: cfg.wall, pos: cfg.pos, enabled: cfg.enabled !== false,
+      compOn: false, frac: 0, offFor: MIN_OFF, integ: 0, starts: [], Q: 0, P: 0,
+    };
+  }
+
+  /** Decide compressor fraction for one unit. */
+  function control(u, Ta, sp, t) {
+    if (!u.enabled) {
+      if (u.compOn) { u.compOn = false; u.offFor = 0; }
+      u.frac = 0; u.integ = 0;
+      return;
+    }
+    const start = () => { u.compOn = true; u.starts.push(t); };
+    const stop = () => { u.compOn = false; u.offFor = 0; };
+    if (u.comp === 'non') {
+      if (u.compOn && Ta <= sp - DEADBAND) stop();
+      else if (!u.compOn && Ta >= sp + DEADBAND && u.offFor >= MIN_OFF) start();
+      u.frac = u.compOn ? 1 : 0;
+    } else {
+      const e = Ta - sp;
+      if (u.compOn) {
+        // conditional integration: freeze the integrator while saturated (anti-windup)
+        const raw = KP * e + u.integ;
+        if (!((raw >= INV_MAX && e > 0) || (raw <= INV_MIN && e < 0)))
+          u.integ = Math.max(0, Math.min(INV_MAX, u.integ + (KP / TI) * e * DT));
+        const demand = KP * e + u.integ;
+        if (demand < INV_MIN && Ta <= sp - 0.5) { stop(); u.frac = 0; }
+        else u.frac = Math.max(INV_MIN, Math.min(INV_MAX, demand));
+      } else {
+        u.frac = 0;
+        if (Ta >= sp + 0.5 && u.offFor >= MIN_OFF) { start(); u.integ = INV_MIN; u.frac = INV_MIN; }
+      }
+    }
+    if (!u.compOn) u.offFor += DT;
+  }
+
+  /** Create a simulation from a full setup object. */
+  function create(setup) {
+    const p = Engine.buildRoom(setup.room);
+    const T0 = setup.room.startTemp ?? setup.outdoor;
+    return {
+      setup, p,
+      sp: setup.setpoint, Tout: setup.outdoor, tariff: setup.tariff,
+      s: { Ta: T0, Tm: T0, t: 0 },
+      units: setup.units.map(makeUnit),
+      kWh: 0, cost: 0, Qac: 0, P: 0,
+      reachedAt: null, events: [],
+    };
+  }
+
+  function stepOnce(sim) {
+    const t = sim.s.t;
+    let Q = 0, P = 0;
+    for (const u of sim.units) {
+      control(u, sim.s.Ta, sim.sp, t);
+      const o = Engine.unitOutput(u, u.frac, sim.Tout);
+      u.Q = o.Q; u.P = o.P;
+      Q += o.Q; P += o.P;
+    }
+    Engine.step(sim.s, sim.p, sim.Tout, Q, DT);
+    sim.Qac = Q; sim.P = P;
+    const e = P * DT / 3.6e6;
+    sim.kWh += e; sim.cost += e * sim.tariff;
+    if (sim.reachedAt === null && sim.s.Ta <= sim.sp + 0.2) sim.reachedAt = sim.s.t;
+  }
+
+  /** Run n fixed steps. */
+  function advance(sim, n) { for (let i = 0; i < n; i++) stepOnce(sim); }
+
+  function cyclesPerHour(u, t) {
+    const from = t - 3600;
+    let n = 0;
+    for (let i = u.starts.length - 1; i >= 0 && u.starts[i] > from; i--) n++;
+    if (u.starts.length > 200) u.starts.splice(0, u.starts.length - 100);
+    return n;
+  }
+
+  /** Sizing verdict from analytic load + observed cycling. */
+  function sizing(sim) {
+    const load = Engine.steadyLoad(sim.p, sim.sp, sim.Tout);
+    let cap = 0;
+    for (const u of sim.units) if (u.enabled)
+      cap += u.tons * Engine.TON_W * Engine.capDerate(sim.Tout) * (u.comp === 'inv' ? INV_MAX : 1);
+    const t = sim.s.t;
+    let cph = 0;
+    for (const u of sim.units) cph = Math.max(cph, cyclesPerHour(u, t));
+    const settled = sim.reachedAt !== null && t - sim.reachedAt >= 1800;
+    let verdict;
+    if (cap === 0) verdict = 'none';
+    else if (load > cap) verdict = 'under';
+    else if (settled && cph > OVERSIZE_CPH) verdict = 'over';
+    else if (sim.reachedAt !== null) verdict = 'good';
+    else verdict = 'pending';
+    return { load, cap, cph, verdict, settled };
+  }
+
+  return { DT, MIN_OFF, makeUnit, create, advance, sizing, cyclesPerHour };
+})();
+
+</script>
+<script>
+/* ================= APP: views + wiring (reads engine state only) ================= */
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const FT = 3.28084, FT2 = 10.7639;
+  const SAMPLE_EVERY = 5;           // sim seconds between graph/CSV samples
+  const MAX_POINTS = 12000;         // decimate graph above this
+  const STRUCTURAL = ['len', 'wid', 'hei', 'extWalls', 'floorPos', 'wall', 'airtight', 'startT', 'startSame', 'people', 'appl', 'winA', 'orient', 'tariff', 'btnAdd', 'btnLoad'];
+  const TYPE_LABEL = { window: 'Window', split: 'Split', cassette: 'Cassette' };
+
+  // ---------- state ----------
+  let lenUnit = 'm';
+  let units = [];
+  let nextId = 1;
+  let selectedId = null;
+  let sim = null;
+  let running = false;
+  let speed = 600;
+  let acc = 0;
+  let data, events, rows, sampleStep;
+  let chartT = null, chartE = null, chartDirty = true;
+  let particles = [];
+  let colors = {};
+
+  // ---------- helpers ----------
+  const num = (id, d = 0) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
+  const fmt = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : '—');
+  const hhmm = (s) => { const m = Math.floor(s / 60); return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
+  const mins = (s) => s < 3600 ? Math.round(s / 60) + ' min' : Math.floor(s / 3600) + ' h ' + Math.round((s % 3600) / 60) + ' min';
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+  };
+  function toast(msg) { $('toast').textContent = msg; clearTimeout(toast.t); toast.t = setTimeout(() => ($('toast').textContent = ''), 4000); }
+  function readColors() {
+    const cs = getComputedStyle(document.documentElement);
+    for (const k of ['bg', 'panel', 'sunk', 'ink', 'muted', 'line', 'cool', 'heat', 'ok', 'warn', 'bad', 'plan-floor', 'plan-wall'])
+      colors[k] = cs.getPropertyValue('--' + k).trim();
+    colors.fontDisplay = cs.getPropertyValue('--font-display').trim() || 'sans-serif';
+  }
+
+  // ---------- setup <-> inputs ----------
+  function fillSelect(id, obj) {
+    $(id).innerHTML = Object.entries(obj).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+  }
+  fillSelect('floorPos', Engine.FLOORS);
+  fillSelect('wall', Engine.WALLS);
+  fillSelect('airtight', Engine.AIRTIGHT);
+  $('airtight').value = 'average';
+
+  const toM = (v) => (lenUnit === 'ft' ? v / FT : v);
+  const toM2 = (v) => (lenUnit === 'ft' ? v / FT2 : v);
+
+  function readSetup() {
+    return {
+      room: {
+        length: toM(num('len', 4)), width: toM(num('wid', 3.5)), height: toM(num('hei', 3)),
+        floor: $('floorPos').value, wall: $('wall').value, airtight: $('airtight').value,
+        extWalls: parseInt($('extWalls').value, 10),
+        people: Math.max(0, num('people')), appliances: Math.max(0, num('appl')),
+        windowArea: Math.max(0, toM2(num('winA'))), orientation: $('orient').value,
+        startTemp: $('startSame').checked ? null : num('startT', 35),
+      },
+      outdoor: num('outdoor', 35), setpoint: num('setpoint', 24), tariff: Math.max(0, num('tariff', 8)),
+      units: units.map((u) => ({ ...u })),
+    };
+  }
+
+  function applySetup(s) {
+    setLenUnit('m', false);
+    const r = s.room;
+    $('len').value = r.length; $('wid').value = r.width; $('hei').value = r.height;
+    $('floorPos').value = r.floor; $('wall').value = r.wall; $('airtight').value = r.airtight;
+    $('extWalls').value = String(r.extWalls);
+    $('people').value = r.people; $('appl').value = r.appliances;
+    $('winA').value = r.windowArea; $('orient').value = r.orientation;
+    $('startSame').checked = r.startTemp == null;
+    $('startT').value = r.startTemp ?? s.outdoor; $('startT').disabled = r.startTemp == null;
+    $('outdoor').value = s.outdoor; $('setpoint').value = s.setpoint; $('tariff').value = s.tariff;
+    units = s.units.map((u) => ({ ...u }));
+    nextId = units.reduce((m, u) => Math.max(m, u.id), 0) + 1;
+    selectedId = units[0]?.id ?? null;
+    renderUnits();
+    reset();
+  }
+
+  function setLenUnit(u, convert = true) {
+    if (u === lenUnit) return;
+    if (convert) {
+      document.querySelectorAll('[data-len]').forEach((el) => {
+        const v = parseFloat(el.value); if (!Number.isFinite(v)) return;
+        el.value = +(u === 'ft' ? v * FT : v / FT).toFixed(2);
+      });
+      document.querySelectorAll('[data-area]').forEach((el) => {
+        const v = parseFloat(el.value); if (!Number.isFinite(v)) return;
+        el.value = +(u === 'ft' ? v * FT2 : v / FT2).toFixed(1);
+      });
+    }
+    lenUnit = u;
+    document.querySelectorAll('.lu').forEach((el) => (el.textContent = u));
+    document.querySelectorAll('.au').forEach((el) => (el.textContent = u + '²'));
+    document.querySelectorAll('#unitSys button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.u === u)));
+  }
+
+  // ---------- AC units ----------
+  function defaultCop(type, comp) { return Engine.presetFor(type, comp).cop; }
+  function addUnit(cfg) {
+    const used = new Set(units.map((u) => u.wall));
+    const wall = cfg?.wall ?? ['left', 'bottom', 'right', 'top'].find((w) => !used.has(w)) ?? 'left';
+    const u = { id: nextId++, type: 'split', tons: 1.5, comp: 'inv', wall, pos: 0.5, enabled: true, ...cfg };
+    u.cop = cfg?.cop ?? defaultCop(u.type, u.comp);
+    units.push(u);
+    selectedId = u.id;
+    return u;
+  }
+
+  function unitLabel(u) { return `AC ${units.indexOf(u) + 1}`; }
+
+  function renderUnits() {
+    const locked = sim && sim.s.t > 0;
+    $('units').innerHTML = units.map((u) => {
+      const caps = Engine.CAPACITIES[u.type];
+      const comp = u.type === 'window' ? 'non' : u.comp;
+      return `<div class="unit${u.id === selectedId ? ' sel' : ''}" data-id="${u.id}">
+        <div class="top">
+          <span class="name">${unitLabel(u)} · ${TYPE_LABEL[u.type]}</span>
+          <span class="badge" data-badge="${u.id}">OFF</span>
+          <label class="switch"><input type="checkbox" data-k="enabled" ${u.enabled ? 'checked' : ''} aria-label="${unitLabel(u)} power"> On</label>
+        </div>
+        <div class="row3">
+          <div class="f"><label for="ty${u.id}">Type</label><select id="ty${u.id}" data-k="type" ${locked ? 'disabled' : ''}>
+            ${['window', 'split', 'cassette'].map((t) => `<option value="${t}" ${t === u.type ? 'selected' : ''}>${TYPE_LABEL[t]}</option>`).join('')}</select></div>
+          <div class="f"><label for="to${u.id}">Capacity</label><select id="to${u.id}" data-k="tons" ${locked ? 'disabled' : ''}>
+            ${caps.map((c) => `<option value="${c}" ${c === u.tons ? 'selected' : ''}>${c} ton</option>`).join('')}</select></div>
+          <div class="f"><label for="co${u.id}">Compressor</label><select id="co${u.id}" data-k="comp" ${locked || u.type === 'window' ? 'disabled' : ''}>
+            <option value="inv" ${comp === 'inv' ? 'selected' : ''}>Inverter</option>
+            <option value="non" ${comp === 'non' ? 'selected' : ''}>Non-inverter</option></select></div>
+        </div>
+        <div class="row3">
+          <div class="f"><label for="cp${u.id}">Rated COP</label><input type="number" id="cp${u.id}" data-k="cop" value="${u.cop}" min="1" max="7" step="0.1" ${locked ? 'disabled' : ''}></div>
+          <div class="f" style="grid-column: span 2; justify-content:flex-end">
+            <div class="meta"><span data-meta="${u.id}">0.00 kW · 0 starts/h</span>
+            <button type="button" class="small ghost" data-k="remove" ${locked ? 'disabled' : ''}>Remove</button></div></div>
+        </div>
+      </div>`;
+    }).join('') || '<p class="note">No AC units. Add one to start cooling.</p>';
+    $('btnAdd').disabled = locked || units.length >= 6;
+    updateHint();
+  }
+
+  $('units').addEventListener('click', (e) => {
+    const card = e.target.closest('.unit'); if (!card) return;
+    const id = +card.dataset.id;
+    if (e.target.dataset.k === 'remove') {
+      units = units.filter((u) => u.id !== id);
+      if (selectedId === id) selectedId = units[0]?.id ?? null;
+      renderUnits(); reset(); return;
+    }
+    if (selectedId !== id) {
+      selectedId = id;
+      document.querySelectorAll('.unit').forEach((c) => c.classList.toggle('sel', +c.dataset.id === id));
+      updateHint();
+    }
+  });
+  $('units').addEventListener('change', (e) => {
+    const card = e.target.closest('.unit'); if (!card) return;
+    const u = units.find((x) => x.id === +card.dataset.id); const k = e.target.dataset.k;
+    if (!u || !k) return;
+    if (k === 'enabled') {
+      u.enabled = e.target.checked;
+      const su = sim?.units.find((x) => x.id === u.id);
+      if (su) su.enabled = u.enabled;
+      if (sim && sim.s.t > 0) addEvent(`${unitLabel(u)} ${u.enabled ? 'on' : 'off'}`);
+      chartDirty = true;
+      return;
+    }
+    if (k === 'type') {
+      u.type = e.target.value;
+      const caps = Engine.CAPACITIES[u.type];
+      if (!caps.includes(u.tons)) u.tons = caps.reduce((a, b) => (Math.abs(b - u.tons) < Math.abs(a - u.tons) ? b : a));
+      if (u.type === 'window') u.comp = 'non';
+      if (u.type === 'cassette') { u.wall = 'ceiling'; u.pos = { x: 0.5, y: 0.5 }; }
+      else if (u.wall === 'ceiling') { u.wall = u.type === 'window' ? 'top' : 'left'; u.pos = 0.5; }
+      if (u.type === 'window' && !exteriorWalls().includes(u.wall)) { u.wall = exteriorWalls()[0]; u.pos = 0.82; }
+      u.cop = defaultCop(u.type, u.comp);
+    } else if (k === 'tons') u.tons = parseFloat(e.target.value);
+    else if (k === 'comp') { u.comp = e.target.value; u.cop = defaultCop(u.type, u.comp); }
+    else if (k === 'cop') u.cop = Math.max(1, parseFloat(e.target.value) || defaultCop(u.type, u.comp));
+    renderUnits(); reset();
+  });
+  $('btnAdd').addEventListener('click', () => { addUnit(); renderUnits(); reset(); });
+
+  function updateHint() {
+    const u = units.find((x) => x.id === selectedId);
+    const locked = sim && sim.s.t > 0;
+    $('planHint').innerHTML = !u ? 'Add an AC unit to place it on the plan. Thick walls face outside.'
+      : locked ? 'Reset to move units. Thick walls face outside.'
+      : u.type === 'cassette' ? `Tap anywhere in the room to move <b>${unitLabel(u)}</b> (ceiling cassette).`
+      : `Tap a wall to move <b>${unitLabel(u)}</b>. Thick walls face outside.`;
+  }
+
+  // ---------- simulation lifecycle ----------
+  function reset() {
+    running = false; acc = 0;
+    sim = Controller.create(readSetup());
+    data = [[], [], [], [], [], [], []]; // t(h), Ta, Tout, sp, Tm, P(kW), kWh
+    events = []; rows = []; sampleStep = SAMPLE_EVERY;
+    sample();
+    setLocked(false);
+    $('btnRun').textContent = 'Run';
+    chartDirty = true;
+    store.set('acsim.last', readSetup());
+  }
+
+  function pushRow() {
+    rows.push([sim.s.t, sim.s.Ta, sim.s.Tm, sim.Tout, sim.sp, sim.P / 1000, sim.kWh, sim.cost, ...sim.units.map((u) => u.frac * 100)]);
+  }
+  function pushPoint() {
+    const s = sim.s;
+    data[0].push(s.t / 3600); data[1].push(s.Ta); data[2].push(sim.Tout); data[3].push(sim.sp);
+    data[4].push(s.Tm); data[5].push(sim.P / 1000); data[6].push(sim.kWh);
+    if (data[0].length > MAX_POINTS) {
+      for (const arr of data) { let j = 0; for (let i = 0; i < arr.length; i += 2) arr[j++] = arr[i]; arr.length = j; }
+      sampleStep *= 2;
+    }
+    chartDirty = true;
+  }
+  function sample() {
+    if (sim.s.t % SAMPLE_EVERY === 0) pushRow();
+    if (sim.s.t % sampleStep === 0) pushPoint();
+  }
+
+  function addEvent(label) { events.push({ t: sim.s.t / 3600, label }); chartDirty = true; }
+
+  function setLocked(on) {
+    STRUCTURAL.forEach((id) => { const el = $(id); if (el) el.disabled = on || (id === 'startT' && $('startSame').checked); });
+    $('lockMsg').hidden = !on;
+    renderUnits();
+  }
+
+  function toggleRun() {
+    if (!running && stopReached()) reset();
+    running = !running;
+    if (running && sim.s.t === 0) setLocked(true);
+    $('btnRun').textContent = running ? 'Pause' : 'Run';
+  }
+  function stopReached() { const h = parseFloat($('stopAt').value); return h > 0 && sim.s.t >= h * 3600; }
+
+  function advanceFrame(dtReal) {
+    if (!running) return;
+    acc += speed * dtReal;
+    let n = Math.floor(acc); acc -= n;
+    while (n-- > 0) {
+      Controller.advance(sim, 1);
+      sample();
+      if (stopReached()) { running = false; acc = 0; $('btnRun').textContent = 'Run'; addEvent('Stop'); break; }
+    }
+  }
+
+  // ---------- inputs wiring ----------
+  $('btnRun').addEventListener('click', toggleRun);
+  $('btnReset').addEventListener('click', reset);
+  $('speed').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    speed = +b.dataset.speed;
+    document.querySelectorAll('#speed button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  });
+  $('unitSys').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setLenUnit(b.dataset.u); });
+
+  function liveChange(id) {
+    const v = num(id);
+    if (id === 'setpoint') {
+      const c = Math.min(30, Math.max(16, v)); $('setpoint').value = c;
+      if (c === sim.sp) return;
+      sim.sp = c;
+      if (sim.s.t > 0) addEvent(`Set ${c}°`); else reset();
+    } else {
+      const c = Math.min(48, Math.max(20, v)); $('outdoor').value = c;
+      if (c === sim.Tout) return;
+      sim.Tout = c;
+      if (sim.s.t > 0) addEvent(`Out ${c}°`); else { if ($('startSame').checked) $('startT').value = c; reset(); }
+    }
+    store.set('acsim.last', readSetup());
+  }
+  ['setpoint', 'outdoor'].forEach((id) => $(id).addEventListener('change', () => liveChange(id)));
+  document.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => {
+    const id = b.dataset.step; $(id).value = num(id) + (+b.dataset.d); liveChange(id);
+  }));
+  $('startSame').addEventListener('change', () => { $('startT').disabled = $('startSame').checked; if ($('startSame').checked) $('startT').value = num('outdoor'); reset(); });
+  ['len', 'wid', 'hei', 'extWalls', 'floorPos', 'wall', 'airtight', 'startT', 'people', 'appl', 'winA', 'orient'].forEach((id) =>
+    $(id).addEventListener('change', () => {
+      if (id === 'extWalls') units.forEach((u) => { if (u.type === 'window' && !exteriorWalls().includes(u.wall)) u.wall = exteriorWalls()[0]; });
+      reset();
+    }));
+  $('tariff').addEventListener('change', () => { sim.tariff = Math.max(0, num('tariff', 8)); sim.cost = sim.kWh * sim.tariff; store.set('acsim.last', readSetup()); });
+  $('advanced').addEventListener('change', () => {
+    $('roTmBox').hidden = !$('advanced').checked; $('keyTm').hidden = !$('advanced').checked;
+    if (chartT) chartT.setSeries(4, { show: $('advanced').checked });
+  });
+
+  // ---------- save / load / export ----------
+  function refreshSaved() {
+    const all = store.get('acsim.setups') || {};
+    const names = Object.keys(all);
+    $('loadSel').innerHTML = names.length ? names.map((n) => `<option>${n.replace(/</g, '&lt;')}</option>`).join('') : '<option value="">No saved setups</option>';
+    $('btnDel').disabled = !names.length;
+  }
+  $('btnSave').addEventListener('click', () => {
+    const name = $('saveName').value.trim() || `Setup ${new Date().toLocaleString()}`;
+    const all = store.get('acsim.setups') || {};
+    all[name] = readSetup();
+    toast(store.set('acsim.setups', all) ? `Saved “${name}”.` : 'This browser blocked storage, so the setup was not saved.');
+    refreshSaved(); $('loadSel').value = name;
+  });
+  $('btnLoad').addEventListener('click', () => {
+    const all = store.get('acsim.setups') || {}; const s = all[$('loadSel').value];
+    if (s) { applySetup(s); toast(`Loaded “${$('loadSel').value}”.`); }
+  });
+  $('btnDel').addEventListener('click', () => {
+    const all = store.get('acsim.setups') || {}; const n = $('loadSel').value;
+    if (n in all) { delete all[n]; store.set('acsim.setups', all); refreshSaved(); toast(`Deleted “${n}”.`); }
+  });
+  function csv() {
+    const head = ['time_s', 'time_hhmm', 'indoor_C', 'walls_C', 'outdoor_C', 'setpoint_C', 'power_kW', 'energy_kWh', 'cost_Tk', ...sim.units.map((u, i) => `ac${i + 1}_load_pct`)];
+    const lines = rows.map((r) => [r[0], hhmm(r[0]), r[1].toFixed(2), r[2].toFixed(2), r[3], r[4], r[5].toFixed(3), r[6].toFixed(4), r[7].toFixed(2), ...r.slice(8).map((x) => x.toFixed(0))].join(','));
+    return head.join(',') + '\n' + lines.join('\n') + '\n';
+  }
+  $('btnCsv').addEventListener('click', () => {
+    const blob = new Blob([csv()], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `ac-sim-${hhmm(sim.s.t).replace(':', 'h')}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast(`CSV with ${rows.length} rows. If no download started, use Copy CSV.`);
+  });
+  $('btnCopy').addEventListener('click', () => {
+    const text = csv();
+    navigator.clipboard?.writeText(text).then(() => toast(`Copied ${rows.length} rows to the clipboard.`), () => toast('Clipboard access was refused. Use Download CSV instead.'))
+      ?? toast('Clipboard is not available here. Use Download CSV instead.');
+  });
+
+  // ---------- floor plan ----------
+  const cv = $('plan'); const ctx = cv.getContext('2d');
+  let geo = null;
+  const WALLS = ['top', 'right', 'bottom', 'left'];
+  function exteriorWalls() { return WALLS.slice(0, parseInt($('extWalls').value, 10)); }
+
+  function layout() {
+    const r = sim.setup.room;
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const m = 46;
+    const s = Math.min((w - 2 * m) / r.length, (h - 2 * m) / r.width);
+    const rw = r.length * s, rh = r.width * s;
+    geo = { dpr, w, h, s, x0: (w - rw) / 2, y0: (h - rh) / 2, rw, rh, L: r.length, W: r.width };
+  }
+  // wall point & inward normal in px
+  function wallPoint(wall, pos) {
+    const { x0, y0, rw, rh } = geo;
+    switch (wall) {
+      case 'top': return { x: x0 + rw * pos, y: y0, nx: 0, ny: 1, len: rw };
+      case 'bottom': return { x: x0 + rw * pos, y: y0 + rh, nx: 0, ny: -1, len: rw };
+      case 'left': return { x: x0, y: y0 + rh * pos, nx: 1, ny: 0, len: rh };
+      default: return { x: x0 + rw, y: y0 + rh * pos, nx: -1, ny: 0, len: rh };
+    }
+  }
+
+  function tempColor(T, a) {
+    // 18 °C deep blue → 26 °C pale → 36 °C red
+    const stops = [[18, [40, 120, 220]], [24, [90, 180, 230]], [28, [235, 225, 200]], [32, [240, 150, 80]], [37, [220, 60, 30]]];
+    let c = stops[stops.length - 1][1];
+    if (T <= stops[0][0]) c = stops[0][1];
+    else for (let i = 1; i < stops.length; i++) if (T <= stops[i][0]) {
+      const [t0, c0] = stops[i - 1], [t1, c1] = stops[i], f = (T - t0) / (t1 - t0);
+      c = c0.map((v, k) => Math.round(v + (c1[k] - v) * f)); break;
+    }
+    return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+  }
+
+  function drawPlan() {
+    layout();
+    const { dpr, w, h, s, x0, y0, rw, rh } = geo;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const ext = exteriorWalls();
+    // floor
+    ctx.fillStyle = colors['plan-floor']; ctx.fillRect(x0, y0, rw, rh);
+    ctx.fillStyle = tempColor(sim.s.Ta, 0.55); ctx.fillRect(x0, y0, rw, rh);
+    // 1 m grid
+    ctx.strokeStyle = colors.line; ctx.lineWidth = 1; ctx.globalAlpha = 0.6; ctx.beginPath();
+    for (let x = 1; x < geo.L; x++) { ctx.moveTo(x0 + x * s + 0.5, y0); ctx.lineTo(x0 + x * s + 0.5, y0 + rh); }
+    for (let y = 1; y < geo.W; y++) { ctx.moveTo(x0, y0 + y * s + 0.5); ctx.lineTo(x0 + rw, y0 + y * s + 0.5); }
+    ctx.stroke(); ctx.globalAlpha = 1;
+
+    // particles (under walls/units)
+    ctx.lineCap = 'round';
+    for (const p of particles) {
+      ctx.strokeStyle = p.fan ? colors.muted : colors.cool;
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 1.4)) * 0.85;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 0.08, p.y - p.vy * 0.08); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // walls
+    for (const wn of WALLS) {
+      const a = wallPoint(wn, 0), b = wallPoint(wn, 1);
+      const isExt = ext.includes(wn);
+      ctx.strokeStyle = colors['plan-wall']; ctx.lineWidth = isExt ? 8 : 3; ctx.lineCap = 'square';
+      ctx.beginPath(); ctx.moveTo(a.x - a.nx * (isExt ? 4 : 1.5), a.y - a.ny * (isExt ? 4 : 1.5)); ctx.lineTo(b.x - b.nx * (isExt ? 4 : 1.5), b.y - b.ny * (isExt ? 4 : 1.5)); ctx.stroke();
+      if (isExt) {
+        ctx.fillStyle = colors.muted; ctx.font = `600 10px ${colors.fontDisplay}`;
+        const mid = wallPoint(wn, 0.5);
+        ctx.save(); ctx.translate(mid.x - mid.nx * 18, mid.y - mid.ny * 18);
+        if (wn === 'left' || wn === 'right') ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('OUTSIDE', 0, 0); ctx.restore();
+      }
+    }
+    // door on the first interior wall; swings wide open when "Door often open"
+    const inner = WALLS.filter((x) => !ext.includes(x));
+    if (inner.length) {
+      const wn = inner[0], p0 = wallPoint(wn, 0.1);
+      const dw = Math.min(0.85 * s, p0.len * 0.35);
+      const tx = wn === 'top' || wn === 'bottom' ? 1 : 0, ty = 1 - tx;
+      ctx.strokeStyle = colors['plan-floor']; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p0.x + tx * dw, p0.y + ty * dw); ctx.stroke();
+      const th = (sim.setup.room.airtight === 'door' ? 0.95 : 0.3) * Math.PI / 2;
+      const leaf = (a) => [p0.x + (tx * Math.cos(a) + p0.nx * Math.sin(a)) * dw, p0.y + (ty * Math.cos(a) + p0.ny * Math.sin(a)) * dw];
+      ctx.strokeStyle = colors['plan-wall']; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(...leaf(th)); ctx.stroke();
+      ctx.setLineDash([3, 3]); ctx.lineWidth = 1; ctx.beginPath();
+      for (let i = 0; i <= 12; i++) { const [x, y] = leaf(th * i / 12); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    // window on first exterior wall
+    const r = sim.setup.room;
+    if (r.windowArea > 0 && ext.length) {
+      const wn = ext[0], c = wallPoint(wn, 0.5);
+      const half = Math.min(c.len * 0.4, (r.windowArea / 1.2) * s / 2);
+      const horiz = wn === 'top' || wn === 'bottom';
+      ctx.strokeStyle = colors.panel; ctx.lineWidth = 9;
+      ctx.beginPath(); ctx.moveTo(c.x - (horiz ? half : 0) - c.nx * 4, c.y - (horiz ? 0 : half) - c.ny * 4); ctx.lineTo(c.x + (horiz ? half : 0) - c.nx * 4, c.y + (horiz ? 0 : half) - c.ny * 4); ctx.stroke();
+      ctx.strokeStyle = colors.cool; ctx.lineWidth = 1.5;
+      for (const off of [-6.5, -1.5]) {
+        ctx.beginPath(); ctx.moveTo(c.x - (horiz ? half : 0) + c.nx * off, c.y - (horiz ? 0 : half) + c.ny * off); ctx.lineTo(c.x + (horiz ? half : 0) + c.nx * off, c.y + (horiz ? 0 : half) + c.ny * off); ctx.stroke();
+      }
+      if (r.orientation !== 'none') {
+        // sun rays entering
+        ctx.strokeStyle = colors.warn; ctx.lineWidth = 1.2; ctx.globalAlpha = 0.25 + 0.6 * Engine.ORIENT[r.orientation];
+        for (let i = -2; i <= 2; i++) {
+          const ox = horiz ? i * half / 2.5 : 0, oy = horiz ? 0 : i * half / 2.5;
+          ctx.beginPath(); ctx.moveTo(c.x + ox + c.nx * 6, c.y + oy + c.ny * 6); ctx.lineTo(c.x + ox + c.nx * 24 + c.ny * 6, c.y + oy + c.ny * 24 + c.nx * 6); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = colors.warn; ctx.font = '600 10px ' + 'ui-monospace, monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(`☀ ${r.orientation}`, c.x - c.nx * 30 + (horiz ? half + 18 : 0), c.y - c.ny * 30 + (horiz ? 0 : half + 18) + (horiz ? 0 : 0));
+      }
+    }
+    // dimensions
+    ctx.fillStyle = colors.muted; ctx.font = '500 11px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const dimL = lenUnit === 'ft' ? (geo.L * FT).toFixed(1) + ' ft' : geo.L.toFixed(2).replace(/0$/, '') + ' m';
+    const dimW = lenUnit === 'ft' ? (geo.W * FT).toFixed(1) + ' ft' : geo.W.toFixed(2).replace(/0$/, '') + ' m';
+    const dimY = ext.includes('bottom') ? y0 - 32 : y0 + rh + 30;
+    const dimX = ext.includes('left') ? x0 + rw + 32 : x0 - 30;
+    ctx.fillText(dimL, x0 + rw / 2, dimY);
+    ctx.save(); ctx.translate(dimX, y0 + rh / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(dimW, 0, 0); ctx.restore();
+
+    // AC units
+    for (const su of sim.units) drawUnit(su);
+  }
+
+  function unitAnchor(su) {
+    const cfg = units.find((u) => u.id === su.id) || su;
+    if (cfg.wall === 'ceiling') {
+      const p = cfg.pos && typeof cfg.pos === 'object' ? cfg.pos : { x: 0.5, y: 0.5 };
+      return { x: geo.x0 + geo.rw * p.x, y: geo.y0 + geo.rh * p.y, ceiling: true };
+    }
+    return { ...wallPoint(cfg.wall, typeof cfg.pos === 'number' ? cfg.pos : 0.5), ceiling: false };
+  }
+
+  function drawUnit(su) {
+    const a = unitAnchor(su), s = geo.s;
+    const sel = su.id === selectedId;
+    ctx.save(); ctx.translate(a.x, a.y);
+    let bx, by;
+    if (a.ceiling) {
+      const q = Math.max(18, 0.62 * s);
+      ctx.fillStyle = colors.panel; ctx.strokeStyle = colors['plan-wall']; ctx.lineWidth = 1.5;
+      ctx.fillRect(-q / 2, -q / 2, q, q); ctx.strokeRect(-q / 2, -q / 2, q, q);
+      ctx.strokeStyle = su.frac > 0 ? colors.cool : colors.muted; ctx.lineWidth = 2;
+      const k = q * 0.32, l = q * 0.22;
+      ctx.beginPath();
+      ctx.moveTo(-l, -k); ctx.lineTo(l, -k); ctx.moveTo(-l, k); ctx.lineTo(l, k);
+      ctx.moveTo(-k, -l); ctx.lineTo(-k, l); ctx.moveTo(k, -l); ctx.lineTo(k, l); ctx.stroke();
+      if (sel) { ctx.setLineDash([4, 3]); ctx.strokeStyle = colors.cool; ctx.lineWidth = 1.5; ctx.strokeRect(-q / 2 - 5, -q / 2 - 5, q + 10, q + 10); ctx.setLineDash([]); }
+      bx = 0; by = q / 2 + 14;
+    } else {
+      ctx.rotate(Math.atan2(a.ny, a.nx) - Math.PI / 2); // local +y points into room
+      let len, dep, off;
+      if (su.type === 'window') { len = Math.max(16, 0.62 * s); dep = Math.max(14, 0.55 * s); off = -dep * 0.45; }
+      else { len = Math.max(26, 0.95 * s); dep = Math.max(8, 0.24 * s); off = 1; }
+      ctx.fillStyle = colors.panel; ctx.strokeStyle = colors['plan-wall']; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-len / 2, off, len, dep, 3) : ctx.rect(-len / 2, off, len, dep); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = su.frac > 0 ? colors.cool : colors.muted; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-len / 2 + 4, off + dep - 3); ctx.lineTo(len / 2 - 4, off + dep - 3); ctx.stroke();
+      if (su.type === 'window') {
+        ctx.strokeStyle = colors.line; ctx.lineWidth = 1;
+        for (let i = 1; i < 4; i++) { ctx.beginPath(); ctx.moveTo(-len / 2 + 4, off + dep * i / 5); ctx.lineTo(len / 2 - 4, off + dep * i / 5); ctx.stroke(); }
+      }
+      if (sel) { ctx.setLineDash([4, 3]); ctx.strokeStyle = colors.cool; ctx.lineWidth = 1.5; ctx.strokeRect(-len / 2 - 5, off - 5, len + 10, dep + 10); ctx.setLineDash([]); }
+      bx = 0; by = off + dep + 14;
+    }
+    ctx.restore();
+    // badge (axis-aligned), offset into room
+    const bxw = a.ceiling ? a.x : a.x + a.nx * (by), byw = a.ceiling ? a.y + by : a.y + a.ny * (by);
+    const label = `${'AC' + (units.findIndex((u) => u.id === su.id) + 1)} ${badgeText(su)}`;
+    ctx.font = '600 11px ui-monospace, monospace';
+    const tw = ctx.measureText(label).width + 10;
+    ctx.fillStyle = colors.panel; ctx.strokeStyle = su.frac > 0 ? colors.cool : colors.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bxw - tw / 2, byw - 9, tw, 18, 4) : ctx.rect(bxw - tw / 2, byw - 9, tw, 18); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = su.frac > 0 ? colors.cool : colors.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, bxw, byw + 0.5);
+  }
+
+  function badgeText(su) {
+    if (!su.enabled) return 'OFF';
+    if (su.frac <= 0) return su.fan > 0 || su.type === 'window' ? 'FAN' : 'IDLE';
+    return Math.round(su.frac * 100) + '%';
+  }
+
+  function stepParticles(dt) {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { particles.length = 0; return; }
+    for (const su of sim.units) {
+      if (!su.enabled) continue;
+      const a = unitAnchor(su);
+      const rate = su.frac > 0 ? 14 + 40 * su.frac : 4;
+      su._emit = (su._emit || 0) + rate * dt;
+      while (su._emit >= 1 && particles.length < 500) {
+        su._emit -= 1;
+        const sp = (su.frac > 0 ? 0.9 + 1.6 * su.frac : 0.6) * geo.s;
+        let nx, ny, x, y;
+        if (a.ceiling) {
+          const d = Math.floor(Math.random() * 4), dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+          [nx, ny] = dirs[d]; x = a.x + nx * 8; y = a.y + ny * 8;
+        } else { nx = a.nx; ny = a.ny; x = a.x + nx * 10; y = a.y + ny * 10; }
+        const jitter = (Math.random() - 0.5) * 0.9, span = (Math.random() - 0.5) * 0.7 * geo.s;
+        const vx = (nx + -ny * jitter) * sp, vy = (ny + nx * jitter) * sp;
+        particles.push({ x: x + -ny * span, y: y + nx * span, vx, vy, life: 1.6 + Math.random() * 0.8, fan: su.frac <= 0 });
+      }
+    }
+    const { x0, y0, rw, rh } = geo;
+    for (const p of particles) {
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 1 - 0.6 * dt; p.vy *= 1 - 0.6 * dt; p.life -= dt;
+      if (p.x < x0 + 3 || p.x > x0 + rw - 3) { p.vx = -p.vx * 0.4; p.x = Math.min(x0 + rw - 3, Math.max(x0 + 3, p.x)); }
+      if (p.y < y0 + 3 || p.y > y0 + rh - 3) { p.vy = -p.vy * 0.4; p.y = Math.min(y0 + rh - 3, Math.max(y0 + 3, p.y)); }
+    }
+    particles = particles.filter((p) => p.life > 0);
+  }
+
+  cv.addEventListener('pointerdown', (e) => {
+    if (!geo) return;
+    const u = units.find((x) => x.id === selectedId);
+    if (!u) return;
+    if (sim.s.t > 0) { $('planHint').innerHTML = '<b>Reset</b> to move units. Thick walls face outside.'; return; }
+    const rect = cv.getBoundingClientRect();
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const fx = (px - geo.x0) / geo.rw, fy = (py - geo.y0) / geo.rh;
+    if (u.type === 'cassette') {
+      u.wall = 'ceiling'; u.pos = { x: Math.min(0.85, Math.max(0.15, fx)), y: Math.min(0.85, Math.max(0.15, fy)) };
+    } else {
+      const d = { top: Math.abs(py - geo.y0), bottom: Math.abs(py - geo.y0 - geo.rh), left: Math.abs(px - geo.x0), right: Math.abs(px - geo.x0 - geo.rw) };
+      let options = WALLS;
+      if (u.type === 'window') options = exteriorWalls();
+      const wall = options.reduce((a, b) => (d[b] < d[a] ? b : a));
+      u.wall = wall;
+      u.pos = Math.min(0.88, Math.max(0.12, wall === 'top' || wall === 'bottom' ? fx : fy));
+      if (u.type === 'window' && !WALLS.filter((x) => !exteriorWalls().includes(x)).every((x) => d[x] > d[wall])) toast('Window units must sit in an outside wall.');
+    }
+    const su = sim.units.find((x) => x.id === u.id); if (su) { su.wall = u.wall; su.pos = u.pos; }
+    store.set('acsim.last', readSetup());
+  });
+
+  // ---------- readouts + sizing ----------
+  function updateReadouts() {
+    const s = sim.s;
+    $('clock').textContent = hhmm(s.t);
+    $('roTa').innerHTML = `${fmt(s.Ta)}<small>°C</small>`;
+    $('roTaS').textContent = `Setpoint ${sim.sp} °C`;
+    $('roTm').innerHTML = `${fmt(s.Tm)}<small>°C</small>`;
+    $('roP').innerHTML = `${fmt(sim.P / 1000, 2)}<small>kW</small>`;
+    $('roPS').textContent = `Cooling ${fmt(sim.Qac / 1000)} kW`;
+    $('roE').innerHTML = `${fmt(sim.kWh, 2)}<small>kWh</small>`;
+    $('roES').textContent = s.t > 0 ? `Avg ${fmt(sim.kWh / (s.t / 3600), 2)} kW` : 'Avg 0.00 kW';
+    $('roC').innerHTML = `${fmt(sim.cost, 2)}<small>Tk</small>`;
+    $('roCS').textContent = `at ${sim.tariff} Tk/kWh`;
+    if (sim.reachedAt !== null) { $('roR').textContent = mins(sim.reachedAt); $('roRS').textContent = `Reached at ${hhmm(sim.reachedAt)}`; }
+    else { $('roR').textContent = '—'; $('roRS').textContent = s.t > 0 ? 'Not reached yet' : 'Press Run to start'; }
+    $('roTa').parentElement.classList.toggle('cool', s.Ta <= sim.sp + 1);
+    const on = sim.units.filter((u) => u.frac > 0);
+    $('roK').textContent = sim.units.length === 0 ? 'NONE' : sim.units.length === 1 ? badgeText(sim.units[0]) : `${on.length}/${sim.units.length} on`;
+    $('roKS').textContent = sim.units.map((u, i) => `AC${i + 1} ${badgeText(u)}`).join(' · ') || 'No units';
+    for (const su of sim.units) {
+      const b = document.querySelector(`[data-badge="${su.id}"]`);
+      if (b) { b.textContent = badgeText(su); b.classList.toggle('run', su.frac > 0); }
+      const m = document.querySelector(`[data-meta="${su.id}"]`);
+      if (m) m.textContent = `${fmt(su.P / 1000, 2)} kW · ${Controller.cyclesPerHour(su, s.t)} starts/h`;
+    }
+  }
+
+  function updateSizing() {
+    const z = Controller.sizing(sim);
+    const ratio = z.cap > 0 ? z.load / z.cap : Infinity;
+    const eq = z.cap > 0 ? Engine.equilibriumTemp(sim.p, sim.Tout, z.cap) : sim.Tout;
+    $('kLoad').textContent = `${fmt(z.load / 1000, 2)} kW (${fmt(z.load / Engine.TON_W, 2)} ton)`;
+    $('kCap').textContent = `${fmt(z.cap / 1000, 2)} kW`;
+    $('kRatio').textContent = Number.isFinite(ratio) ? Math.round(ratio * 100) + '%' : '—';
+    $('kEq').textContent = eq < 16 ? 'below 16 °C' : `${fmt(eq)} °C`;
+    $('kCph').textContent = sim.s.t >= 3600 ? String(z.cph) : `${z.cph} (first hour)`;
+    $('mFill').style.width = Math.min(100, (Number.isFinite(ratio) ? ratio : 1) * 100) + '%';
+    $('mFill').classList.toggle('hot', ratio > 1);
+    $('mLoad').textContent = `Heat gain ${fmt(z.load / 1000, 2)} kW`;
+    $('mCap').textContent = `Capacity ${fmt(z.cap / 1000, 2)} kW`;
+    const chip = $('vChip');
+    const hasNon = sim.units.some((u) => u.enabled && u.comp === 'non');
+    const map = {
+      none: ['No AC', 'Turn on or add an AC unit to cool the room.'],
+      under: ['Undersized', `At full power the room levels off near ${fmt(eq)} °C, so it will not reach ${sim.sp} °C. Add capacity, seal gaps or shade the window.`],
+      over: ['Oversized', `The compressor starts ${z.cph} times an hour. Short-cycling wastes energy, wears the compressor and removes less humidity. A smaller ${hasNon ? 'or inverter ' : ''}unit would run steadier.`],
+      good: ['Well sized', `Reached ${sim.sp} °C in ${mins(sim.reachedAt ?? 0)}${z.settled ? ' and runs steadily.' : '. Watching the next 30 min for short-cycling.'}`],
+      pending: ['Cooling', sim.s.t > 0 ? `Pulling down. Heat gain is ${Math.round(ratio * 100)}% of capacity.` : `Heat gain is ${Math.round(ratio * 100)}% of capacity. Run to see pull-down time and cycling.`],
+    };
+    const [label, text] = map[z.verdict];
+    chip.className = 'chip ' + z.verdict; chip.textContent = label; $('vText').textContent = text;
+  }
+
+  // ---------- charts ----------
+  function makeCharts() {
+    readColors();
+    const wT = $('chartT').clientWidth || 600;
+    const mark = (u) => {
+      const c = u.ctx; c.save();
+      c.strokeStyle = colors.muted; c.fillStyle = colors.muted; c.lineWidth = 1 * devicePixelRatio; c.setLineDash([3 * devicePixelRatio, 3 * devicePixelRatio]);
+      c.font = `${11 * devicePixelRatio}px ui-monospace, monospace`; c.textBaseline = 'top';
+      for (const ev of events) {
+        const x = Math.round(u.valToPos(ev.t, 'x', true));
+        if (x < u.bbox.left || x > u.bbox.left + u.bbox.width) continue;
+        c.beginPath(); c.moveTo(x, u.bbox.top); c.lineTo(x, u.bbox.top + u.bbox.height); c.stroke();
+        c.fillText(ev.label, x + 3 * devicePixelRatio, u.bbox.top + 2 * devicePixelRatio);
+      }
+      c.restore();
+    };
+    const axis = (extra) => ({ stroke: colors.muted, grid: { stroke: colors.line, width: 1 }, ticks: { stroke: colors.line, width: 1 }, font: '11px ui-monospace, monospace', ...extra });
+    const xVals = (u, vals) => vals.map((v) => { const m = Math.round(v * 60); return Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0'); });
+    const xRange = (u, min, max) => [0, Math.max(max, 0.25)];
+    if (chartT) chartT.destroy();
+    if (chartE) chartE.destroy();
+    $('chartT').textContent = ''; $('chartE').textContent = '';
+    if (typeof uPlot === 'undefined') {
+      $('chartT').innerHTML = '<p class="note">The graph library did not load (offline?). Readouts and the floor plan still work.</p>';
+      chartT = chartE = null; return;
+    }
+    try {
+    chartT = new uPlot({
+      width: wT, height: window.innerWidth < 600 ? 240 : 300,
+      legend: { show: false }, cursor: { drag: { x: false, y: false } },
+      scales: {
+        x: { time: false, range: xRange },
+        T: { range: (u, min, max) => [Math.floor(Math.min(min, sim.sp) - 1), Math.ceil(Math.max(max, sim.Tout) + 1)] },
+        kW: { range: (u, min, max) => [0, Math.max(1, max * 1.15)] },
+      },
+      series: [
+        {},
+        { label: 'Indoor', scale: 'T', stroke: colors.heat, width: 2 },
+        { label: 'Outdoor', scale: 'T', stroke: colors.muted, width: 1.5, dash: [6, 4] },
+        { label: 'Setpoint', scale: 'T', stroke: colors.ok, width: 1.5, dash: [3, 3] },
+        { label: 'Walls', scale: 'T', stroke: colors.warn, width: 1.5, show: $('advanced').checked },
+        { label: 'Power', scale: 'kW', stroke: colors.cool, width: 1.25, fill: colors.cool + '22' },
+      ],
+      axes: [
+        axis({ values: xVals, label: 'sim time (h:mm)', labelSize: 18, labelFont: '11px ui-monospace, monospace' }),
+        axis({ scale: 'T', values: (u, v) => v.map((x) => x + '°'), size: 44 }),
+        axis({ scale: 'kW', side: 1, grid: { show: false }, values: (u, v) => v.map((x) => x.toFixed(1)), size: 40 }),
+      ],
+      hooks: { draw: [mark] },
+    }, [data[0], data[1], data[2], data[3], data[4], data[5]], $('chartT'));
+    chartE = new uPlot({
+      width: wT, height: 120, legend: { show: false }, cursor: { drag: { x: false, y: false } },
+      scales: { x: { time: false, range: xRange }, y: { range: (u, min, max) => [0, Math.max(0.5, max * 1.1)] } },
+      series: [{}, { label: 'kWh', stroke: colors.cool, width: 2, fill: colors.cool + '30' }],
+      axes: [axis({ values: xVals }), axis({ values: (u, v) => v.map((x) => x.toFixed(1)), size: 44 }), axis({ side: 1, grid: { show: false }, values: (u, v) => v.map(() => ''), size: 40 })],
+    }, [data[0], data[6]], $('chartE'));
+    } catch (err) {
+      console.error(err);
+      $('chartT').innerHTML = '<p class="note">The graph could not be drawn in this browser. Readouts and the floor plan still work.</p>';
+      chartT = chartE = null;
+    }
+    chartDirty = false;
+  }
+
+  function updateCharts() {
+    if (!chartT || !chartDirty) return;
+    chartT.setData([data[0], data[1], data[2], data[3], data[4], data[5]]);
+    chartE.setData([data[0], data[6]]);
+    chartDirty = false;
+  }
+
+  new ResizeObserver(() => {
+    const w = $('chartT').clientWidth;
+    if (chartT && w) { chartT.setSize({ width: w, height: chartT.height }); chartE.setSize({ width: w, height: chartE.height }); }
+  }).observe($('chartT'));
+  const themeChanged = () => { makeCharts(); };
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', themeChanged);
+  new MutationObserver(themeChanged).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // ---------- main loop ----------
+  let last = performance.now(), lastSlow = 0, lastChart = 0;
+  function frame(now) {
+    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    advanceFrame(dt);
+    if (geo) stepParticles(dt);
+    drawPlan();
+    updateReadouts();
+    if (now - lastSlow > 250) { updateSizing(); lastSlow = now; }
+    if (now - lastChart > 100) { updateCharts(); lastChart = now; }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- boot ----------
+  readColors();
+  refreshSaved();
+  const saved = store.get('acsim.last');
+  let booted = false;
+  if (saved && saved.room && Array.isArray(saved.units)) {
+    try { applySetup(saved); booted = true; } catch (e) { booted = false; }
+  }
+  if (!booted) {
+    addUnit({ type: 'split', tons: 1.5, comp: 'inv', wall: 'left', pos: 0.5 });
+    renderUnits();
+    reset();
+  }
+  $('roTmBox').hidden = !$('advanced').checked;
+  makeCharts();
+  toggleRun(); // open in a live, running state
+  requestAnimationFrame(frame);
+
+  // expose for debugging / future 3D view
+  window.ACSim = {
+    get sim() { return sim; }, Engine, Controller,
+    fastForward(seconds) { for (let i = 0; i < seconds && !stopReached(); i++) { Controller.advance(sim, 1); sample(); } chartDirty = true; },
+  };
+})();
+</script>
+</body>
+</html>
